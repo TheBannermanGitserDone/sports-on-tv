@@ -323,20 +323,20 @@ def build_html(today_pt):
             match = (f"{team_link(g['away'])} <span class='bnr-tv-at'>@</span> "
                      f"{team_link(g['home'])}{_status_badge(g)}")
             rows.append(
-                "<tr>"
-                f"<td class='bnr-tv-match'>{match}</td>"
-                f"<td class='bnr-tv-time'>{esc(fmt_time(g['dt']))}</td>"
-                f"<td class='bnr-tv-net'>{net_cell(g['us'], qurl(LISTINGS_US_URL, q))}</td>"
-                f"<td class='bnr-tv-net bnr-tv-ca'>{net_cell(g['ca'], qurl(LISTINGS_CA_URL, q))}</td>"
-                "</tr>")
+                "<div class='bnr-tv-row'>"
+                f"<div class='bnr-tv-c bnr-tv-match'>{match}</div>"
+                f"<div class='bnr-tv-c bnr-tv-time'><span class='bnr-tv-lbl'>Start</span>{esc(fmt_time(g['dt']))}</div>"
+                f"<div class='bnr-tv-c bnr-tv-net'><span class='bnr-tv-lbl'>\U0001F1FA\U0001F1F8 US</span>{net_cell(g['us'], qurl(LISTINGS_US_URL, q))}</div>"
+                f"<div class='bnr-tv-c bnr-tv-net bnr-tv-ca'><span class='bnr-tv-lbl'>\U0001F1E8\U0001F1E6 Canada</span>{net_cell(g['ca'], qurl(LISTINGS_CA_URL, q))}</div>"
+                "</div>")
             if g["dt"] and g["state"] != "post":
                 schema_items.append({"@type": "SportsEvent",
                                      "name": f"{g['away']} at {g['home']}",
                                      "startDate": g["dt"].astimezone(ET).isoformat(),
                                      "eventStatus": "https://schema.org/EventScheduled"})
-        table = ("<table class='bnr-tv-table'><thead><tr>"
-                 "<th>Matchup</th><th>Start</th><th>\U0001F1FA\U0001F1F8 US</th><th>\U0001F1E8\U0001F1E6 Canada</th>"
-                 "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+        table = ("<div class='bnr-tv-grid'><div class='bnr-tv-hrow'>"
+                 "<div>Matchup</div><div>Start</div><div>\U0001F1FA\U0001F1F8 US</div><div>\U0001F1E8\U0001F1E6 Canada</div>"
+                 "</div>" + "".join(rows) + "</div>")
         note = ""
         if lg["src"] == "espn" and lg.get("ca_note"):
             note = f"<p class='bnr-tv-canote'>\U0001F1E8\U0001F1E6 <strong>In Canada:</strong> {esc(lg['ca_note'])}.</p>"
@@ -365,9 +365,12 @@ def build_html(today_pt):
 .bnr-tv-league{margin:0 0 26px}
 .bnr-tv-league h2{font-size:1.2rem;margin:0 0 8px;padding-bottom:6px;border-bottom:2px solid #2a2f36;color:#fff}
 .bnr-tv-canote{color:#9aa4b2;font-size:.85rem;margin:0 0 10px}
-.bnr-tv-table{width:100%;border-collapse:collapse;font-size:.95rem}
-.bnr-tv-table th{text-align:left;color:#8b93a1;font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.5px;padding:6px 10px;border-bottom:1px solid #2a2f36}
-.bnr-tv-table td{padding:9px 10px;border-bottom:1px solid #1c2127;vertical-align:top}
+.bnr-tv-grid{width:100%;font-size:.95rem}
+.bnr-tv-hrow,.bnr-tv-row{display:grid !important;grid-template-columns:1fr 116px 1.05fr 1.05fr;gap:12px;align-items:start;margin:0}
+.bnr-tv-hrow{color:#8b93a1;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;padding:0 0 7px;border-bottom:1px solid #2a2f36}
+.bnr-tv-row{padding:10px 0;border-bottom:1px solid #1c2127}
+.bnr-tv-c{min-width:0;overflow-wrap:anywhere}
+.bnr-tv-lbl{display:none}
 .bnr-tv-match{font-weight:600;color:#fff}
 .bnr-tv-at{color:#c9a24b;font-weight:400;padding:0 2px}
 .bnr-tv-time{color:#c8ccd2;white-space:nowrap}
@@ -384,19 +387,18 @@ def build_html(today_pt):
 .bnr-tv-cta{margin:26px 0 6px;padding:18px 20px;background:#1a1f26;border-radius:10px;border:1px solid #2a2f36}
 .bnr-tv-cta a{display:inline-block;margin-top:10px;background:#c9a24b;color:#111;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:8px}
 .bnr-tv-foot{color:#6b7280;font-size:.8rem;margin-top:18px}
-@media(max-width:560px){.bnr-tv-table{font-size:.85rem}.bnr-tv-table td,.bnr-tv-table th{padding:7px 6px}}
+@media(max-width:600px){
+.bnr-tv-hrow{display:none !important}
+.bnr-tv-row{grid-template-columns:1fr !important;gap:4px;padding:14px 0}
+.bnr-tv-lbl{display:inline-block;color:#8b93a1;font-size:.66rem;text-transform:uppercase;letter-spacing:.5px;margin-right:8px;min-width:64px}
+.bnr-tv-match{font-size:1.05rem;margin-bottom:3px}
+}
 </style>
 """
 
     html = f"""{css}
 <div class="bnr-tv-wrap">
-  <h1>Sports on TV Today &mdash; US &amp; Canada</h1>
   <p class="bnr-tv-date">{esc(pretty)}</p>
-  <p class="bnr-tv-intro">Every college football, NFL, NHL, MLB, college basketball, NBA, MLS
-  and CFL game on today &mdash; with start times (Eastern &amp; Pacific) and the channel or
-  stream carrying it in <strong>both the US and Canada</strong>. Updated fresh every morning.
-  From The Bannerman &mdash; original canvas prints of the teams, players and eras you grew
-  up on, printed regionally and made to order.</p>
 
   {''.join(blocks)}
 
