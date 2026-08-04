@@ -385,7 +385,7 @@ def build_html(today_pt):
 .bnr-tv-final{color:#8b93a1;font-size:.78rem}
 .bnr-tv-off{color:#8b93a1;font-style:italic;margin:2px 0 0}
 .bnr-tv-cta{margin:26px 0 6px;padding:18px 20px;background:#1a1f26;border-radius:10px;border:1px solid #2a2f36}
-.bnr-tv-cta a{display:inline-block;margin-top:10px;background:#c9a24b;color:#111;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:8px}
+.bnr-tv-cta a{display:inline-block;margin-top:10px;background:#c9a24b;color:#111;font-weight:700;text-decoration:none;padding:9px 16px;border-radius:8px;white-space:nowrap;font-size:.92rem}
 .bnr-tv-foot{color:#6b7280;font-size:.8rem;margin-top:18px}
 @media(max-width:600px){
 .bnr-tv-hrow{display:none !important}
@@ -403,10 +403,8 @@ def build_html(today_pt):
   {''.join(blocks)}
 
   <div class="bnr-tv-cta">
-    <strong>Wear your fandom on the wall, not just the couch.</strong><br>
-    Museum-quality canvas prints of your team's greatest eras &mdash; printed regionally in
-    Canada and the US, made to order.
-    <br><a href="{COLLECTIONS_URL}">Shop the collection &rarr;</a>
+    <strong>Love Thy Team.</strong><br>
+    <a href="{COLLECTIONS_URL}">Shop the collection &rarr;</a>
   </div>
 
   <p class="bnr-tv-foot">Times shown Eastern / Pacific. US &amp; Canadian listings sourced from
