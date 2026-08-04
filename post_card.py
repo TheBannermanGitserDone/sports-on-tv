@@ -18,7 +18,14 @@ API = "https://api.contentstudio.io/api/v1"
 KEY = os.environ.get("CONTENTSTUDIO_API_KEY", "").strip()
 IMAGE_URL = os.environ.get("IMAGE_URL", "").strip()
 PUBLISH_TYPE = os.environ.get("PUBLISH_TYPE", "draft").strip()
-EXCLUDE = ("twitter", "x")   # never post to these platforms
+
+# The daily card is a single static image, so we only post it to platforms that
+# accept image posts. TikTok and YouTube require video (their APIs reject a still
+# image), and YouTube is deliberately left off so it never competes with the
+# homepage "On This Day in Sports" video. Twitter/X is skipped per the owner.
+# This is an allow-list: any account whose platform isn't here is skipped, so a
+# newly-connected video-only account can never break the daily post.
+INCLUDE = ("facebook", "instagram")
 
 
 def api(method, path, body=None):
@@ -105,8 +112,8 @@ def main():
         aid = gid(a)
         if not aid:
             continue
-        if any(x in plat for x in EXCLUDE):
-            print("  skip (excluded):", label(a), plat, flush=True)
+        if not any(x in plat for x in INCLUDE):
+            print("  skip (not an image platform):", label(a), plat, flush=True)
             continue
         print("  will post to:", label(a), plat, flush=True)
         ids.append(aid)
