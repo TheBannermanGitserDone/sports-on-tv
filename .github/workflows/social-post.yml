@@ -1,0 +1,70 @@
+name: Daily Social Card
+
+# Renders the "Marquee Games" card and posts it to ContentStudio every morning
+# at 9:30 AM Eastern. GitHub cron is UTC and ignores DST, so we fire twice and a
+# guard runs the real work only in the 9 AM Eastern hour (one firing lands there
+# year-round: 13:30 UTC in summer / EDT, 14:30 UTC in winter / EST).
+
+on:
+  schedule:
+    - cron: "30 13 * * *"
+    - cron: "30 14 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write        # lets the job commit the rendered image back to the repo
+
+concurrency:
+  group: social-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Only run at ~9:30 AM Eastern (manual runs always proceed)
+        id: guard
+        run: |
+          H=$(TZ="America/New_York" date +%H)
+          echo "Eastern now: $(TZ=America/New_York date '+%Y-%m-%d %H:%M')"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$H" = "09" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"; echo "Not the 9 AM Eastern hour — skipping."
+          fi
+
+      - name: Set up Python
+        if: steps.guard.outputs.run == 'yes'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        if: steps.guard.outputs.run == 'yes'
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Render the card
+        if: steps.guard.outputs.run == 'yes'
+        run: python render_card.py
+
+      - name: Commit the image so it has a public URL
+        if: steps.guard.outputs.run == 'yes'
+        run: |
+          git config user.name "bannerman-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add social-card.png caption.txt
+          git commit -m "daily social card $(date -u +%F)" || echo "nothing to commit"
+          git push
+          echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Post to ContentStudio
+        if: steps.guard.outputs.run == 'yes'
+        env:
+          CONTENTSTUDIO_API_KEY: ${{ secrets.CONTENTSTUDIO_API_KEY }}
+          IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.SHA }}/social-card.png
+          PUBLISH_TYPE: draft        # starts as DRAFT so we can verify; flip to "published" once confirmed
+        run: python post_card.py
