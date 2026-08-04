@@ -27,6 +27,20 @@ _US_MAJOR = ["espn", "fox", "fs1", "tbs", "tnt", " abc", "nbc", "cbs", "mlb netw
              "netflix", "max", "tru tv", "trutv"]
 _CA_MAJOR = ["sportsnet", "tsn", "tva", "cbc", "sn now", "rds"]
 
+# "SportsNet" is a Canadian brand (Rogers), but several US regional networks are
+# also named "SportsNet <city>" (Pittsburgh, LA, New York/SNY). Those are US, not
+# Canadian, so exclude them from the CA match below.
+_US_SPORTSNET = ["sportsnet pittsburgh", "sportsnet la", "sportsnet l.a.",
+                 "sportsnet new york", "sportsnet ny", "attsn", "at&t sportsnet"]
+
+
+def _is_ca(name):
+    """True only for genuine Canadian networks (guards against US SportsNet RSNs)."""
+    n = (name or "").lower()
+    if any(us in n for us in _US_SPORTSNET):
+        return False
+    return any(k in n for k in _CA_MAJOR)
+
 
 def _has(nets, keys):
     j = " ".join(nets or []).lower()
@@ -37,7 +51,7 @@ def _score(g):
     s = 0
     if _has(g.get("us"), _US_MAJOR):
         s += 3           # national US window
-    if _has(g.get("ca"), _CA_MAJOR):
+    if any(_is_ca(n) for n in (g.get("ca") or [])):
         s += 2           # notable Canadian carrier
     return s
 
@@ -49,12 +63,16 @@ def _natl_net(g):
         if any(k in n.lower() for k in _US_MAJOR):
             return ("natl", "US", n + " · National")
     for n in (g.get("ca") or []):
-        if any(k in n.lower() for k in _CA_MAJOR):
+        if _is_ca(n):
             return ("ca", "CA", n)
-    if g.get("us"):
-        return ("us", "US", g["us"][0])
-    if g.get("ca"):
-        return ("ca", "CA", g["ca"][0])
+    # any US listing (including US "SportsNet <city>" regionals) shows as US
+    for n in (g.get("us") or []):
+        return ("us", "US", n)
+    # last resort: something only in the CA list. If it's actually a US regional
+    # (e.g. "SportsNet Pittsburgh"), tag it US; otherwise CA.
+    for n in (g.get("ca") or []):
+        us_rsn = any(x in n.lower() for x in _US_SPORTSNET)
+        return ("us", "US", n) if us_rsn else ("ca", "CA", n)
     return ("us", "", "Check listings")
 
 
