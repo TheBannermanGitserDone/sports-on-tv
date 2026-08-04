@@ -366,7 +366,7 @@ def build_html(today_pt):
 .bnr-tv-league h2{font-size:1.2rem;margin:0 0 8px;padding-bottom:6px;border-bottom:2px solid #2a2f36;color:#fff}
 .bnr-tv-canote{color:#9aa4b2;font-size:.85rem;margin:0 0 10px}
 .bnr-tv-grid{width:100%;font-size:.95rem}
-.bnr-tv-hrow,.bnr-tv-row{display:grid !important;grid-template-columns:1fr 116px 1.05fr 1.05fr;gap:12px;align-items:start;margin:0}
+.bnr-tv-hrow,.bnr-tv-row{display:grid !important;grid-template-columns:minmax(0,1.3fr) 168px minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin:0}
 .bnr-tv-hrow{color:#8b93a1;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;padding:0 0 7px;border-bottom:1px solid #2a2f36}
 .bnr-tv-row{padding:10px 0;border-bottom:1px solid #1c2127}
 .bnr-tv-c{min-width:0;overflow-wrap:anywhere}
