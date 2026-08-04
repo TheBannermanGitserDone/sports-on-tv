@@ -11,13 +11,20 @@ tells us the exact JSON shapes.
 import os
 import sys
 import json
+import datetime
 import urllib.request
 import urllib.error
+from zoneinfo import ZoneInfo
 
 API = "https://api.contentstudio.io/api/v1"
 KEY = os.environ.get("CONTENTSTUDIO_API_KEY", "").strip()
 IMAGE_URL = os.environ.get("IMAGE_URL", "").strip()
+# "draft" while verifying; "scheduled" to actually publish. ContentStudio has no
+# literal "publish now" — immediate posting = scheduled a few minutes out.
 PUBLISH_TYPE = os.environ.get("PUBLISH_TYPE", "draft").strip()
+# minutes ahead to schedule when PUBLISH_TYPE == "scheduled" (a small lead keeps
+# scheduled_at safely in the future so ContentStudio accepts it).
+SCHEDULE_LEAD_MIN = int(os.environ.get("SCHEDULE_LEAD_MIN", "5"))
 
 # The daily card is a single static image, so we only post it to platforms that
 # accept image posts. TikTok and YouTube require video (their APIs reject a still
@@ -100,7 +107,8 @@ def main():
     if not wl:
         sys.exit("Could not read workspaces from response above.")
     wid = gid(wl[0])
-    print("using workspace:", wid, label(wl[0]), flush=True)
+    ws_tz = wl[0].get("timezone") or "America/Vancouver"
+    print("using workspace:", wid, label(wl[0]), "tz:", ws_tz, flush=True)
 
     # 2) accounts (drop Twitter/X)
     st, acc = api("GET", f"/workspaces/{wid}/accounts")
@@ -121,10 +129,19 @@ def main():
         sys.exit("No eligible accounts found (check the accounts response above).")
 
     # 3) create the post
+    scheduling = {"publish_type": PUBLISH_TYPE}
+    if PUBLISH_TYPE == "scheduled":
+        # publish ~now: a few minutes out, in the workspace's own timezone so
+        # ContentStudio interprets the timestamp the same way its UI does.
+        when = (datetime.datetime.now(ZoneInfo(ws_tz))
+                + datetime.timedelta(minutes=SCHEDULE_LEAD_MIN))
+        scheduling["scheduled_at"] = when.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"scheduling for {scheduling['scheduled_at']} ({ws_tz})", flush=True)
+
     payload = {
         "content": {"text": text, "media": {"images": [IMAGE_URL]}},
         "accounts": ids,
-        "scheduling": {"publish_type": PUBLISH_TYPE},
+        "scheduling": scheduling,
     }
     st, res = api("POST", f"/workspaces/{wid}/posts", payload)
     print("POST /posts ->", st, json.dumps(res)[:1200], flush=True)
