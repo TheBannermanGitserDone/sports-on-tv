@@ -384,8 +384,8 @@ def build_html(today_pt):
 .bnr-tv-live{background:#c0392b;color:#fff;font-size:.66rem;padding:1px 6px;border-radius:4px;font-weight:700}
 .bnr-tv-final{color:#8b93a1;font-size:.78rem}
 .bnr-tv-off{color:#8b93a1;font-style:italic;margin:2px 0 0}
-.bnr-tv-cta{margin:26px 0 6px;padding:18px 20px;background:#1a1f26;border-radius:10px;border:1px solid #2a2f36}
-.bnr-tv-cta a{display:inline-block;margin-top:10px;background:#c9a24b;color:#111;font-weight:700;text-decoration:none;padding:9px 16px;border-radius:8px;white-space:nowrap;font-size:.92rem}
+.bnr-tv-cta{margin:26px 0 6px;padding:16px 20px;background:#1a1f26;border-radius:10px;border:1px solid #2a2f36;text-align:center}
+.bnr-tv-cta a{display:inline-block;background:#c9a24b;color:#111;font-weight:700;text-decoration:none;padding:9px 16px;border-radius:8px;white-space:nowrap;font-size:.92rem}
 .bnr-tv-foot{color:#6b7280;font-size:.8rem;margin-top:18px}
 @media(max-width:600px){
 .bnr-tv-hrow{display:none !important}
@@ -403,7 +403,6 @@ def build_html(today_pt):
   {''.join(blocks)}
 
   <div class="bnr-tv-cta">
-    <strong>Love Thy Team.</strong><br>
     <a href="{COLLECTIONS_URL}">Shop the collection &rarr;</a>
   </div>
 
