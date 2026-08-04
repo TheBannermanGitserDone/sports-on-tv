@@ -66,5 +66,6 @@ jobs:
         env:
           CONTENTSTUDIO_API_KEY: ${{ secrets.CONTENTSTUDIO_API_KEY }}
           IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.SHA }}/social-card.png
-          PUBLISH_TYPE: draft        # starts as DRAFT so we can verify; flip to "published" once confirmed
+          PUBLISH_TYPE: scheduled    # LIVE: publishes to Instagram + Facebook (a few min after each run)
+          SCHEDULE_LEAD_MIN: "5"     # minutes ahead to schedule so the timestamp stays in the future
         run: python post_card.py
