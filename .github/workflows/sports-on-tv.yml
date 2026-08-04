@@ -1,0 +1,54 @@
+name: Sports on TV Today
+
+# Refreshes thebannerman.ca/pages/sports-on-tv-today every morning at 4:35 AM Pacific.
+#
+# GitHub cron runs in UTC and does NOT adjust for daylight saving, so we schedule
+# TWO firings and let a guard step run the real work only when it's the 4 AM hour
+# in Pacific time. Exactly one firing lands in that hour year-round:
+#   * 11:35 UTC  -> 4:35 AM PDT (summer)  |  3:35 AM PST (winter, skipped)
+#   * 12:35 UTC  -> 5:35 AM PDT (summer, skipped) | 4:35 AM PST (winter)
+# The hour-wide guard also absorbs GitHub's usual few-minutes cron delay.
+
+on:
+  schedule:
+    - cron: "35 11 * * *"
+    - cron: "35 12 * * *"
+  workflow_dispatch: {}          # lets you run it by hand from the Actions tab anytime
+
+concurrency:
+  group: sports-on-tv
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Only proceed at ~4:35 AM Pacific (manual runs always proceed)
+        id: guard
+        run: |
+          HOUR=$(TZ="America/Los_Angeles" date +%H)
+          NOW=$(TZ="America/Los_Angeles" date "+%Y-%m-%d %H:%M")
+          echo "Pacific time now: $NOW"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          elif [ "$HOUR" = "04" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not the 4 AM Pacific hour — skipping this firing."
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate & publish the page
+        if: steps.guard.outputs.run == 'yes'
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+        run: python generate_sports_tv.py
