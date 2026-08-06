@@ -1,26 +1,21 @@
 name: Daily Social Card
 
-# Renders the "Marquee Games" card and posts it to ContentStudio (Instagram +
-# Facebook) once per day.
-#
-# post_card.py creates a NEW post every time it runs, so it must fire exactly
-# once a day. GitHub's scheduled runs are frequently delayed (sometimes by
-# hours), so instead of gating on the exact clock hour (which silently skipped
-# the whole day whenever GitHub ran late) we gate on a committed date stamp:
-# the first firing of the day does the work and records today's Eastern date in
-# .last_post_date; later/backup firings that day see the stamp and no-op. The
-# concurrency lock serializes firings so we never double-post.
+# Renders the "Marquee Games" card and posts it so it lands ~9:35 AM Eastern (the
+# job runs ~9:30 and schedules 5 minutes ahead). GitHub cron is UTC and ignores DST,
+# so we fire at both the EDT and EST offsets, plus two later backup firings in case
+# GitHub delays or drops the morning run. A per-day marker (.last_post_date) means
+# only the first successful firing each day posts -- it can never double-post.
 
 on:
   schedule:
-    - cron: "30 13 * * *"   # ~9:30 AM EDT / 8:30 AM EST
-    - cron: "30 14 * * *"   # ~10:30 AM EDT / 9:30 AM EST
-    - cron: "30 16 * * *"   # ~12:30 PM EDT / 11:30 AM EST  (backup)
-    - cron: "30 18 * * *"   # ~2:30 PM EDT / 1:30 PM EST    (backup)
+    - cron: "30 13 * * *"   # 9:30 AM EDT (summer)
+    - cron: "30 14 * * *"   # 9:30 AM EST (winter)
+    - cron: "30 16 * * *"   # backup (~12:30 PM ET)
+    - cron: "30 18 * * *"   # backup (~2:30 PM ET)
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # lets the job commit the rendered image + date stamp
+  contents: write
 
 concurrency:
   group: social-post
@@ -32,16 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Post once per day (manual runs always proceed)
+      - name: Post once per day, on/after 9 AM ET (manual runs always proceed)
         id: guard
         run: |
           TODAY=$(TZ="America/New_York" date +%F)
+          NOWET=$(TZ="America/New_York" date +%H%M)
           LAST=$(cat .last_post_date 2>/dev/null || echo none)
-          echo "Eastern today: $TODAY  |  last posted: $LAST"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$TODAY" != "$LAST" ]; then
+          echo "Eastern now: $(TZ=America/New_York date '+%Y-%m-%d %H:%M')  |  last posted: $LAST"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          elif [ "$TODAY" != "$LAST" ] && [ "$NOWET" -ge "0900" ]; then
             echo "run=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "Already posted for $TODAY - skipping this firing."
+            echo "Before 9 AM ET or already posted today - skipping this firing."
             echo "run=no" >> "$GITHUB_OUTPUT"
           fi
 
@@ -76,8 +74,8 @@ jobs:
         env:
           CONTENTSTUDIO_API_KEY: ${{ secrets.CONTENTSTUDIO_API_KEY }}
           IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.SHA }}/social-card.png
-          PUBLISH_TYPE: scheduled   # LIVE: publishes to Instagram + Facebook (a few min after the run)
-          SCHEDULE_LEAD_MIN: "5"    # minutes ahead to schedule so the timestamp stays in the future
+          PUBLISH_TYPE: scheduled
+          SCHEDULE_LEAD_MIN: "5"
         run: python post_card.py
 
       - name: Record today's post so later firings skip

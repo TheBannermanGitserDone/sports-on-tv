@@ -1,22 +1,18 @@
 name: Sports on TV Today
 
-# Refreshes thebannerman.ca/pages/sports-on-tv-today every morning (Pacific).
-#
-# generate_sports_tv.py is idempotent: it always rebuilds *today's* Pacific-date
-# page and UPSERTs it into the one Shopify page, so running it more than once a
-# day just republishes the same content. GitHub's scheduled runs are frequently
-# delayed (sometimes by hours), which used to make the old exact-hour guard skip
-# the whole day. We now publish on every firing and schedule several morning
-# firings for redundancy, so a delayed or dropped cron no longer leaves the page
-# stale.
+# Publishes thebannerman.ca/pages/sports-on-tv-today every morning ~7:35 AM Eastern.
+# GitHub cron is UTC and ignores DST, so we fire at both the EDT and EST offsets,
+# plus two later backup firings in case GitHub delays or drops the morning run.
+# The page script just republishes today's page (idempotent), so extra firings are
+# harmless and there is no time guard that could silently skip.
 
 on:
   schedule:
-    - cron: "35 11 * * *"   # ~4:35 AM PDT / 3:35 AM PST
-    - cron: "35 12 * * *"   # ~5:35 AM PDT / 4:35 AM PST
-    - cron: "35 14 * * *"   # ~7:35 AM PDT / 6:35 AM PST  (backup)
-    - cron: "35 16 * * *"   # ~9:35 AM PDT / 8:35 AM PST  (backup)
-  workflow_dispatch: {}      # run it by hand from the Actions tab anytime
+    - cron: "35 11 * * *"   # 7:35 AM EDT (summer)
+    - cron: "35 12 * * *"   # 7:35 AM EST (winter)
+    - cron: "35 15 * * *"   # backup (~11:35 AM ET)
+    - cron: "35 17 * * *"   # backup (~1:35 PM ET)
+  workflow_dispatch: {}
 
 concurrency:
   group: sports-on-tv
