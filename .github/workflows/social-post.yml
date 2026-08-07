@@ -1,17 +1,25 @@
 name: Daily Social Card
 
-# Renders the "Marquee Games" card and posts it so it lands ~9:35 AM Eastern (the
-# job runs ~9:30 and schedules 5 minutes ahead). GitHub cron is UTC and ignores DST,
-# so we fire at both the EDT and EST offsets, plus two later backup firings in case
-# GitHub delays or drops the morning run. A per-day marker (.last_post_date) means
-# only the first successful firing each day posts -- it can never double-post.
+# Renders the "Marquee Games" card and schedules it in ContentStudio to PUBLISH at
+# 9:35 AM Eastern -- a reminder just before the earliest games (~10 AM ET).
+#
+# The job runs EARLY (hourly from 6-8 AM ET; the marquee data is available well
+# before then) and schedules the post for a FIXED 9:35 AM ET slot, so the actual
+# post time does NOT depend on when GitHub happens to run the job. Even if GitHub's
+# cron is delayed an hour or two, the post still lands at 9:35. It only misses a day
+# if GitHub can't run ANY job in the whole 6-9 AM window (e.g. a multi-hour Actions
+# outage), and it never posts late in the day.
+#
+# GitHub cron is UTC and ignores DST; the guard runs only in the 6-8 AM ET hours, so
+# the off-season firings (which land at 5 AM or 9 AM ET) are skipped. A per-day
+# marker (.last_post_date) means the post is scheduled at most once per day.
 
 on:
   schedule:
-    - cron: "30 13 * * *"   # 9:30 AM EDT (summer)
-    - cron: "30 14 * * *"   # 9:30 AM EST (winter)
-    - cron: "30 16 * * *"   # backup (~12:30 PM ET)
-    - cron: "30 18 * * *"   # backup (~2:30 PM ET)
+    - cron: "0 10 * * *"   # 6 AM EDT / 5 AM EST
+    - cron: "0 11 * * *"   # 7 AM EDT / 6 AM EST
+    - cron: "0 12 * * *"   # 8 AM EDT / 7 AM EST
+    - cron: "0 13 * * *"   # 9 AM EDT / 8 AM EST
   workflow_dispatch: {}
 
 permissions:
@@ -27,19 +35,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Post once per day, on/after 9 AM ET (manual runs always proceed)
+      - name: Run once per day in the 6-8 AM ET window (manual runs always proceed)
         id: guard
         run: |
           TODAY=$(TZ="America/New_York" date +%F)
-          NOWET=$(TZ="America/New_York" date +%H%M)
+          H=$(TZ="America/New_York" date +%H)
           LAST=$(cat .last_post_date 2>/dev/null || echo none)
           echo "Eastern now: $(TZ=America/New_York date '+%Y-%m-%d %H:%M')  |  last posted: $LAST"
+          INWIN=no
+          case "$H" in 06|07|08) INWIN=yes;; esac
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "run=yes" >> "$GITHUB_OUTPUT"
-          elif [ "$TODAY" != "$LAST" ] && [ "$NOWET" -ge "0900" ]; then
+          elif [ "$TODAY" != "$LAST" ] && [ "$INWIN" = "yes" ]; then
             echo "run=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "Before 9 AM ET or already posted today - skipping this firing."
+            echo "Outside the 6-8 AM ET window, or already posted today - skipping."
             echo "run=no" >> "$GITHUB_OUTPUT"
           fi
 
@@ -69,14 +79,19 @@ jobs:
           git push
           echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Post to ContentStudio
+      - name: Post to ContentStudio (scheduled to publish at 9:35 AM ET)
         if: steps.guard.outputs.run == 'yes'
         env:
           CONTENTSTUDIO_API_KEY: ${{ secrets.CONTENTSTUDIO_API_KEY }}
           IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.SHA }}/social-card.png
           PUBLISH_TYPE: scheduled
-          SCHEDULE_LEAD_MIN: "5"
-        run: python post_card.py
+        run: |
+          NOW=$(date +%s)
+          TARGET=$(TZ="America/New_York" date -d "09:35" +%s)
+          LEAD=$(( (TARGET - NOW + 59) / 60 ))
+          if [ "$LEAD" -lt 1 ]; then LEAD=1; fi
+          echo "Scheduling ContentStudio post for 09:35 ET (lead ${LEAD} min from now)"
+          SCHEDULE_LEAD_MIN="$LEAD" python post_card.py
 
       - name: Record today's post so later firings skip
         if: steps.guard.outputs.run == 'yes'
