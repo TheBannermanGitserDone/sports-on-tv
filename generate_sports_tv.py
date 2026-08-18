@@ -76,7 +76,19 @@ LEAGUES = [
 ]
 
 # Recognize Canadian networks by name (MLB/NHL feeds have no country flag on some).
-_CA_KEYS = ("sportsnet", "tsn", " rds", "rds", "tva sports", "cbc", "citytv", "dazn", "sn now")
+_CA_KEYS = ("sportsnet", "tsn", " rds", "rds", "tva sports", "tvas", "cbc", "citytv",
+            "dazn", "sn now")
+
+# The NHL feed names networks by short code ("SN", "SNE", "TVAS", "CITY") rather than
+# in full. Those are matched exactly, never as substrings -- a bare "city" substring
+# would swallow US regionals named after a city (e.g. "Bally Sports Kansas City").
+# In practice the NHL supplies countryCode, so this is the fallback path only.
+_CA_EXACT = frozenset({
+    "sn", "sn1", "sn360", "sn590",
+    "sne", "sno", "snp", "snw",
+    "sneast", "snontario", "snpacific", "snwest",
+    "city", "citytv", "cbc", "src",
+})
 
 
 # Rogers' Canadian brand is "Sportsnet". Several US regional sports networks are
@@ -109,7 +121,7 @@ def is_canadian(name):
         return False
     if _is_us_sportsnet(n):
         return False
-    if n in ("sn", "sn1", "sn360", "sn590"):
+    if n in _CA_EXACT:
         return True
     return any(k in n for k in _CA_KEYS)
 
@@ -245,6 +257,62 @@ def games_espn(path, date_iso, groups=None):
     return out
 
 
+def _cfl_ca(g, day):
+    """From 2027 DAZN Canada holds exclusive Saturday Night Football; TSN keeps the rest.
+    Source: CFL media announcement, May 2026."""
+    if day.year >= 2027 and day.weekday() == 5:
+        return ["DAZN"]
+    return ["TSN"]
+
+
+def _nba_ca(g, day):
+    """Raptors games carry on Sportsnet. Everything else genuinely splits between
+    Sportsnet / TSN national windows, so leave it to the listings link."""
+    if "Raptors" in f"{g.get('away', '')} {g.get('home', '')}":
+        return ["Sportsnet"]
+    return []
+
+
+# Canadian rights that are deterministic enough to state per game, for the leagues
+# whose feeds carry no Canadian data at all (ESPN is US-only; see games_espn).
+#
+# These are HARDCODED FACTS AND THEY GO STALE. Each carries an expiry: once the run
+# date passes it the rule is ignored and the Canada cell falls back to the "Check
+# listings" link. A rule that ages out degrades into an honest lookup rather than a
+# confident lie -- which is the failure mode that matters, since a wrong channel is
+# worse than no channel. Re-verify and bump `verified`/`expires` when renewing.
+CA_RIGHTS = {
+    "MLS Soccer":     {"verified": "2026-08-18", "expires": "2027-12-31",
+                       "fn": lambda g, day: ["Apple TV \u2014 MLS Season Pass"]},
+    "NFL Football":   {"verified": "2026-08-18", "expires": "2027-03-31",
+                       "fn": lambda g, day: ["DAZN"]},
+    "CFL Football":   {"verified": "2026-08-18", "expires": "2029-12-31",
+                       "fn": _cfl_ca},
+    "NBA Basketball": {"verified": "2026-08-18", "expires": "2027-06-30",
+                       "fn": _nba_ca},
+}
+
+
+def _apply_ca_rights(lg, games, date_iso):
+    """Fill the Canada column from CA_RIGHTS, but never overwrite real feed data."""
+    rule = CA_RIGHTS.get(lg["name"])
+    if not rule:
+        return games
+    try:
+        day = datetime.date.fromisoformat(date_iso)
+        expires = datetime.date.fromisoformat(rule["expires"])
+    except ValueError:
+        return games
+    if day > expires:
+        log(f"  ! Canadian rights rule for {lg['name']} expired {rule['expires']} "
+            f"- falling back to the listings link")
+        return games
+    for g in games:
+        if not g.get("ca"):
+            g["ca"] = rule["fn"](g, day)
+    return games
+
+
 def load_games(lg, date_iso):
     if lg["src"] == "mlb":
         games = games_mlb(date_iso)
@@ -252,6 +320,7 @@ def load_games(lg, date_iso):
         games = games_nhl(date_iso)
     else:
         games = games_espn(lg["path"], date_iso, lg.get("groups"))
+    games = _apply_ca_rights(lg, games, date_iso)
     games.sort(key=lambda g: (g["dt"] is None,
                g["dt"] or datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)))
     return games
