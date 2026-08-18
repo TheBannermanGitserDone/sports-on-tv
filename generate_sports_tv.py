@@ -79,8 +79,36 @@ LEAGUES = [
 _CA_KEYS = ("sportsnet", "tsn", " rds", "rds", "tva sports", "cbc", "citytv", "dazn", "sn now")
 
 
+# Rogers' Canadian brand is "Sportsnet". Several US regional sports networks are
+# also called "SportsNet" (capital N) and almost always carry a market name --
+# "Detroit SportsNet", "SportsNet Pittsburgh", "Spectrum SportsNet". Because the
+# names are lower-cased before matching, a bare "sportsnet" substring test put
+# those US regionals in the Canada column. The Canadian brands are therefore
+# allowlisted explicitly and any other "sportsnet" string is treated as US.
+_CA_SPORTSNET = frozenset({
+    "sportsnet", "sportsnet+", "sportsnet plus",
+    "sportsnet one", "sportsnet 1", "sportsnet 360", "sportsnet360",
+    "sportsnet east", "sportsnet ontario", "sportsnet west", "sportsnet pacific",
+    "sportsnet world", "sn now", "sn1", "sn360",
+})
+
+
+def _norm_net(name):
+    """Lower-case, collapse whitespace, drop trailing punctuation."""
+    return re.sub(r"\s+", " ", (name or "").lower()).strip(" .,-")
+
+
+def _is_us_sportsnet(n):
+    """True for a US regional named 'SportsNet' rather than Rogers Sportsnet."""
+    return "sportsnet" in n and n not in _CA_SPORTSNET
+
+
 def is_canadian(name):
-    n = (name or "").lower().strip()
+    n = _norm_net(name)
+    if not n:
+        return False
+    if _is_us_sportsnet(n):
+        return False
     if n in ("sn", "sn1", "sn360", "sn590"):
         return True
     return any(k in n for k in _CA_KEYS)
