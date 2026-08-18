@@ -93,6 +93,15 @@ jobs:
           echo "Scheduling ContentStudio post for 09:35 ET (lead ${LEAD} min from now)"
           SCHEDULE_LEAD_MIN="$LEAD" python post_card.py
 
+      - name: Clean up already-published marquee cards
+        if: steps.guard.outputs.run == 'yes'
+        env:
+          CONTENTSTUDIO_API_KEY: ${{ secrets.CONTENTSTUDIO_API_KEY }}
+          # Flip to "false" once a dry run looks right.
+          DRY_RUN: "true"
+          DELETE_AFTER_HOURS: "24"
+        run: python cleanup_posts.py
+
       - name: Record today's post so later firings skip
         if: steps.guard.outputs.run == 'yes'
         run: |
