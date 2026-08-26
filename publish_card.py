@@ -32,18 +32,35 @@ SITE   = "thebannerman.ca"
 BLUE   = "#5C8DB8"          # sampled from the logo on thebannerman.ca
 BLUE_D = "#4E7FA8"
 
+USE_PHOTO   = False              # False -> show the triangle logo instead of the headshot
 PHOTO_FILE  = "card-photo.jpg"   # binary, if present
 PHOTO_B64   = "card-photo.b64"   # same image, base64 text (web-UI friendly)
+LOGO_B64    = "card-logo.b64"    # triangle mark, used as the saved contact photo
 TRIANGLE = ("M 0,741 L 1197,741 L 613,0 L 787,332 L 410,332 L 582,1 Z")
 
-VCARD = "\r\n".join([
-    "BEGIN:VCARD", "VERSION:3.0",
-    "N:Dhanowa;Damon;;;", f"FN:{NAME}", f"ORG:{ORG}",
-    f"TEL;TYPE=CELL,VOICE:{PHONE_TEL}",
-    f"EMAIL;TYPE=INTERNET,PREF:{EMAIL}",
-    f"URL:https://{SITE}", f"NOTE:{TAG}",
-    "END:VCARD", "",
-])
+def _fold(line, width=74):
+    """vCard lines wrap at 75 octets; continuation lines start with one space."""
+    out = [line[:width]]
+    i = width
+    while i < len(line):
+        out.append(" " + line[i:i + width - 1])
+        i += width - 1
+    return out
+
+
+def build_vcard():
+    lines = ["BEGIN:VCARD", "VERSION:3.0",
+             "N:Dhanowa;Damon;;;", f"FN:{NAME}", f"ORG:{ORG}",
+             f"TEL;TYPE=CELL,VOICE:{PHONE_TEL}",
+             f"EMAIL;TYPE=INTERNET,PREF:{EMAIL}",
+             f"URL:https://{SITE}", f"NOTE:{TAG}"]
+    if os.path.exists(LOGO_B64):
+        b64 = "".join(open(LOGO_B64).read().split())
+        lines += _fold(f"PHOTO;ENCODING=b;TYPE=PNG:{b64}")
+    else:
+        log(f"  ! {LOGO_B64} not found — saved contact will have no photo")
+    lines += ["END:VCARD", ""]
+    return "\r\n".join(lines)
 
 
 def log(m): print(m, flush=True)
@@ -52,6 +69,8 @@ def log(m): print(m, flush=True)
 def avatar_html():
     """Inline the photo so the page has no external image dependency."""
     b64 = ""
+    if not USE_PHOTO:
+        return logo_html()
     if os.path.exists(PHOTO_FILE):
         b64 = base64.b64encode(open(PHOTO_FILE, "rb").read()).decode()
     elif os.path.exists(PHOTO_B64):
@@ -61,9 +80,16 @@ def avatar_html():
                 'style="width:132px;height:132px;border-radius:50%;object-fit:cover;'
                 'display:block;margin:0 auto 18px;border:4px solid rgba(255,255,255,.35);">')
     log(f"  ! neither {PHOTO_FILE} nor {PHOTO_B64} found — using the logo mark")
+    return logo_html()
+
+
+def logo_html():
+    """The Bannerman triangle, centred in the same circle the photo occupied."""
     return ('<div style="width:132px;height:132px;border-radius:50%;background:#fff;'
-            'margin:0 auto 18px;display:flex;align-items:center;justify-content:center;">'
-            f'<svg width="70" height="43" viewBox="0 0 1197 741"><path d="{TRIANGLE}" '
+            'margin:0 auto 18px;border:4px solid rgba(255,255,255,.35);'
+            'display:flex;align-items:center;justify-content:center;">'
+            f'<svg width="78" height="48" viewBox="0 0 1197 741" role="img" '
+            f'aria-label="The Bannerman"><path d="{TRIANGLE}" '
             f'fill="{BLUE}" fill-rule="evenodd"/></svg></div>')
 
 
@@ -74,8 +100,18 @@ def row(href, text, label, last=False):
             f'<div style="font-size:12.5px;color:#8b8b8b;margin-top:3px;">{label}</div></div>')
 
 
+def footer_mark():
+    """Small mark at the foot of the card — dropped when the logo is already the avatar,
+    so the triangle does not appear twice on one card."""
+    if not USE_PHOTO:
+        return ""
+    return ('<div style="text-align:center;margin-top:22px;"><svg width="42" height="26" '
+            f'viewBox="0 0 1197 741" aria-hidden="true"><path d="{TRIANGLE}" '
+            f'fill="{BLUE}" fill-rule="evenodd"/></svg></div>')
+
+
 def build_html():
-    vcf_b64 = base64.b64encode(VCARD.encode("utf-8")).decode()
+    vcf_b64 = base64.b64encode(build_vcard().encode("utf-8")).decode()
     return f'''<div style="max-width:460px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#232323;">
 <div style="background:{BLUE};padding:36px 24px 28px;text-align:center;border-radius:10px 10px 0 0;">
 {avatar_html()}
@@ -92,7 +128,7 @@ def build_html():
 {row(f"mailto:{EMAIL}", EMAIL, "Email")}
 {row(f"https://{SITE}", SITE, "Website", last=True)}
 <a href="data:text/vcard;charset=utf-8;base64,{vcf_b64}" download="damon-dhanowa.vcf" style="display:block;margin-top:26px;background:{BLUE};color:#fff;text-align:center;padding:16px 12px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;letter-spacing:.9px;">SAVE TO MY PHONE</a>
-<div style="text-align:center;margin-top:22px;"><svg width="42" height="26" viewBox="0 0 1197 741" aria-hidden="true"><path d="{TRIANGLE}" fill="{BLUE}" fill-rule="evenodd"/></svg></div>
+{footer_mark()}
 </div></div>'''
 
 
