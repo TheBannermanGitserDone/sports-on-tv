@@ -1,0 +1,30 @@
+name: Contact Card Page
+
+# Publishes thebannerman.ca/pages/card — the destination for the QR code on the
+# printed business card. Manual only: the page is static, so it only needs to run
+# when the card's content or photo changes.
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: contact-card
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Publish the contact card page
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+        run: python publish_card.py
