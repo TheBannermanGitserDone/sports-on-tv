@@ -1,5 +1,8 @@
 name: Probe data sources
 
+# Manual only. Tests which sports feeds are reachable from a GitHub runner,
+# after ESPN's site.api host began returning 403 to GitHub IP ranges.
+
 on:
   workflow_dispatch:
 
