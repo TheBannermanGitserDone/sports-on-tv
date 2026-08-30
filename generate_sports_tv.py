@@ -242,12 +242,27 @@ def games_nhl(date_iso):
 
 
 # -------------------------------------------------------- source: ESPN -----
+# ESPN serves the same JSON from more than one host. site.api.espn.com started
+# returning HTTP 403 to GitHub Actions runner IPs -- confirmed by probe_sources.py,
+# where the identical request succeeds from other networks and from site.web.api.
+# The working host is tried first; the old one is kept as a fallback so this heals
+# itself if the block is ever lifted.
+ESPN_HOSTS = ("site.web.api.espn.com", "site.api.espn.com")
+
+
 def games_espn(path, date_iso, groups=None):
     yyyymmdd = date_iso.replace("-", "")
-    url = f"https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard?dates={yyyymmdd}&limit=400"
+    suffix = f"/apis/site/v2/sports/{path}/scoreboard?dates={yyyymmdd}&limit=400"
     if groups:
-        url += f"&groups={groups}"
-    data = get_json(url)
+        suffix += f"&groups={groups}"
+    data = None
+    mark = len(FETCH_ERRORS)
+    for host in ESPN_HOSTS:
+        data = get_json(f"https://{host}{suffix}")
+        if data:
+            # A fallback host worked, so the earlier failure is not an outage.
+            del FETCH_ERRORS[mark:]
+            break
     out = []
     for ev in (data or {}).get("events", []):
         comp = (ev.get("competitions") or [{}])[0]
