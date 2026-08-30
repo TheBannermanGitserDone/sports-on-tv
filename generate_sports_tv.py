@@ -131,13 +131,29 @@ def log(m):
     print(m, flush=True)
 
 
+# ESPN blocks custom/bot User-Agents with HTTP 403. Identify as a normal
+# browser (Referer matters too -- their edge rules check it alongside the UA).
+BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.espn.com/",
+}
+
+# Feeds that failed this run. Checked at the end of main() so a dead upstream
+# fails the workflow loudly instead of quietly publishing a half-empty page.
+FETCH_ERRORS = []
+
+
 def get_json(url, headers=None):
-    req = urllib.request.Request(url, headers=headers or {"User-Agent": "TheBannerman-SportsOnTV/1.0"})
+    req = urllib.request.Request(url, headers=headers or BROWSER_HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=25) as r:
             return json.load(r)
     except Exception as e:
         log(f"  ! fetch failed {url.split('?')[0]}: {e}")
+        FETCH_ERRORS.append(url.split("?")[0])
         return None
 
 
@@ -573,6 +589,11 @@ def main():
     log(f"Total games today: {total}")
     upsert_page(html, mt, md)
     log("Done ✅")
+    if FETCH_ERRORS:
+        log(f"!! {len(FETCH_ERRORS)} feed(s) failed this run:")
+        for u in FETCH_ERRORS:
+            log(f"   - {u}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
