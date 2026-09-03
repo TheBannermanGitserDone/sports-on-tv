@@ -399,23 +399,27 @@ def load_collections():
 
 
 def team_url(name):
-    """Best available link for a team: its collection if we have one, else a store search."""
-    toks = name.split()
-    cands = [slug(name)]
-    if toks:
-        cands.append(slug(toks[-1]))                # nickname, e.g. "jays"
-    if len(toks) >= 2:
-        cands.append(slug(" ".join(toks[-2:])))     # 2-word nickname, e.g. "blue-jays"
-    for c in cands:
-        if c and c in COLLECTION_INDEX:
-            return f"https://thebannerman.ca/collections/{COLLECTION_INDEX[c]}"
-    return qurl(STORE_SEARCH_URL, name)
+    """A team links ONLY to its own published collection. No collection -> no link.
+
+    Matching is on the FULL team name (checked against both collection handle and title).
+    The old store-search fallback is gone: it sent every team without a collection to a
+    keyword search that landed on the wrong products (a search for "Toronto Blue Jays"
+    surfaced Toronto Maple Leafs items) and put a link on all ~130 FBS teams, none of
+    which has a collection. Nickname-only matching is gone too, so a future collection
+    handled "rangers" or "kings" can never attach itself to two different teams."""
+    c = slug(name)
+    if c and c in COLLECTION_INDEX:
+        return f"https://thebannerman.ca/collections/{COLLECTION_INDEX[c]}"
+    return None
 
 
 def team_link(name):
     if not name or name == "TBD":
         return esc(name or "TBD")
-    return f"<a class='bnr-tv-team' href='{team_url(name)}'>{esc(name)}</a>"
+    url = team_url(name)
+    if not url:
+        return f"<span class='bnr-tv-team-plain'>{esc(name)}</span>"
+    return f"<a class='bnr-tv-team' href='{url}'>{esc(name)}</a>"
 
 
 def net_cell(nets, listings_url):
@@ -506,6 +510,7 @@ def build_html(today_pt):
 .bnr-tv-ca{color:#e0574a}
 .bnr-tv-none{color:#8b93a1;font-style:italic}
 .bnr-tv-team{color:#fff;text-decoration:none;border-bottom:1px dotted #c9a24b}
+.bnr-tv-team-plain{color:#fff}
 .bnr-tv-team:hover{color:#c9a24b}
 .bnr-tv-check{color:#8b93a1;font-style:italic;text-decoration:none}
 .bnr-tv-check:hover{color:#c9a24b}
