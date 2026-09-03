@@ -344,6 +344,120 @@ def _apply_ca_rights(lg, games, date_iso):
     return games
 
 
+# --------------------------------------------- source: Canadian listings ----
+# ESPN's feeds carry US networks only, so a game with no Canadian broadcaster used
+# to drop straight to the "Check listings" link even when it was on TSN. TSN
+# publishes its own day schedule for TSN1-5 and the TSN+ streams as open JSON --
+# the feed behind tsn.ca/live/schedule -- so ask it directly before giving up.
+# Sportsnet, CBC and CTV have no comparable open feed found yet; when one turns up
+# it plugs in here the same way.
+TSN_SCHEDULE_URL = (
+    "https://www.tsn.ca/pf/api/v3/content/fetch/sports-schedule-custom?query="
+    + urllib.parse.quote(json.dumps(
+        {"channelGroup": "TSN+",
+         "selectedChannels": "TSN1,TSN2,TSN3,TSN4,TSN5,TSN+",
+         "type": "scheduleQuery"},
+        separators=(",", ":")))
+)
+
+_TSN_CACHE = None
+
+# Weak first words that must never stand alone as a team key -- "New" would match
+# any New-anything, "St" any saint.
+_WEAK_PLACE = {"new", "los", "san", "st", "the", "north", "south", "east", "west",
+               "fort", "port", "lake", "bay", "old"}
+
+
+def tsn_listings():
+    """Today's TSN broadcasts as [(title, channel, start_dt)]; [] if unavailable.
+
+    A failure here is NOT fatal: the Canada cell falls back to CA_RIGHTS or the
+    "Check listings" link exactly as before, so the FETCH_ERRORS entry get_json
+    records is cleared again. A TSN outage must not fail an otherwise good run.
+    """
+    global _TSN_CACHE
+    if _TSN_CACHE is not None:
+        return _TSN_CACHE
+    mark = len(FETCH_ERRORS)
+    data = get_json(TSN_SCHEDULE_URL)
+    del FETCH_ERRORS[mark:]
+    out = []
+    for item in (data or {}).values():
+        if not isinstance(item, dict):
+            continue
+        title = ((item.get("headlines") or {}).get("basic") or "").strip()
+        chan = (item.get("channelName") or "").strip()
+        start = parse_dt(item.get("startTime"))
+        if title and chan and start:
+            out.append((title, chan, start))
+    if data is None:
+        log("  ! TSN listings unavailable - Canadian cells fall back to the listings link")
+    else:
+        log(f"  TSN listings: {len(out)} broadcast(s) today")
+    _TSN_CACHE = out
+    return out
+
+
+def _team_keys(name):
+    """Short forms a broadcaster might use for a team.
+
+    "Georgia Tech Yellow Jackets" -> the full name, "Jackets", "Yellow Jackets",
+    "Georgia", "Georgia Tech". Listings write "Colorado vs. Georgia Tech", never
+    the full ESPN display name, so matching has to allow the short forms.
+    """
+    toks = [t for t in re.split(r"\s+", (name or "").strip()) if t]
+    if not toks:
+        return []
+    keys = {" ".join(toks), toks[-1]}
+    if len(toks) >= 2:
+        keys.add(" ".join(toks[-2:]))
+        keys.add(" ".join(toks[:2]))
+        if toks[0].lower().strip(".") not in _WEAK_PLACE:
+            keys.add(toks[0])
+    return [k.lower() for k in keys if len(k) > 2]
+
+
+def _tsn_channel(chan):
+    """TSN+01..TSN+11 are streaming feeds, not channels anyone can tune to."""
+    return "TSN+" if re.match(r"^tsn\+\d+$", (chan or "").lower()) else chan
+
+
+def _ca_from_tsn(g):
+    """TSN channels carrying this game, or [] if TSN isn't showing it.
+
+    Both teams must appear in the listing title, and the broadcast has to start in
+    the window a live window occupies -- from two hours before the game to an hour
+    after. That keeps a same-night replay or a highlights show from being reported
+    as the live broadcast.
+    """
+    listings = tsn_listings()
+    if not listings or not g.get("dt"):
+        return []
+    away, home = _team_keys(g.get("away")), _team_keys(g.get("home"))
+    if not away or not home:
+        return []
+    found = []
+    for title, chan, start in listings:
+        offset = (start - g["dt"]).total_seconds()
+        if not -7200 <= offset <= 3600:
+            continue
+        t = title.lower()
+        if any(k in t for k in away) and any(k in t for k in home):
+            found.append(_tsn_channel(chan))
+    return dedupe(sorted(found))
+
+
+def _apply_tsn(games):
+    """Fill an empty Canada cell from the TSN schedule; never overwrite feed data."""
+    for g in games:
+        if not g.get("ca"):
+            hit = _ca_from_tsn(g)
+            if hit:
+                g["ca"] = hit
+                log(f"    TSN: {g.get('away')} at {g.get('home')} -> {', '.join(hit)}")
+    return games
+
+
 def load_games(lg, date_iso):
     if lg["src"] == "mlb":
         games = games_mlb(date_iso)
@@ -351,6 +465,8 @@ def load_games(lg, date_iso):
         games = games_nhl(date_iso)
     else:
         games = games_espn(lg["path"], date_iso, lg.get("groups"))
+    # Real listings beat a rights rule, so TSN is consulted first.
+    games = _apply_tsn(games)
     games = _apply_ca_rights(lg, games, date_iso)
     games.sort(key=lambda g: (g["dt"] is None,
                g["dt"] or datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)))
