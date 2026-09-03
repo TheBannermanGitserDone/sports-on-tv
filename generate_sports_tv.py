@@ -349,8 +349,16 @@ def _apply_ca_rights(lg, games, date_iso):
 # to drop straight to the "Check listings" link even when it was on TSN. TSN
 # publishes its own day schedule for TSN1-5 and the TSN+ streams as open JSON --
 # the feed behind tsn.ca/live/schedule -- so ask it directly before giving up.
-# Sportsnet, CBC and CTV have no comparable open feed found yet; when one turns up
-# it plugs in here the same way.
+# Sportsnet, CBC and CTV are NOT covered, and the obvious routes are closed:
+#   * sportsnet.ca/tv-listings is a 404 and Rogers publishes no open schedule feed
+#   * tvtv.ca disallows /api/ for everyone and blocks ClaudeBot from the whole site
+#   * tvguide.com is US ZIP-code listings only, with no Canadian data at all
+#   * tvlistings.gracenote.com ignores Canadian lineup IDs from a US IP and answers
+#     with a Seattle over-the-air lineup instead
+#   * ontvtonight.com/ca does publish server-rendered guides that parse cleanly from
+#     a browser, but from a GitHub runner every channel returns a ~7.5KB challenge
+#     page with HTTP 200 and no schedule table (measured, run #125). Tried and
+#     reverted -- do not spend another session on it without a way around that.
 TSN_SCHEDULE_URL = (
     "https://www.tsn.ca/pf/api/v3/content/fetch/sports-schedule-custom?query="
     + urllib.parse.quote(json.dumps(
@@ -426,8 +434,8 @@ def _team_keys(name):
 
 
 # A listing is the live game only if it names a sport or a league AND is not one of
-# the recap/studio formats that name the same two teams -- "Blue Jays in 30" airs on
-# a channel that may not be carrying the game at all.
+# the recap/studio formats that name the same two teams -- a "<team> in 30" condensed
+# replay airs on channels that are not carrying the game at all.
 _LIVE_EVENT = re.compile(
     r"\b(baseball|football|hockey|basketball|soccer|tennis|golf|racing|boxing|ufc|"
     r"mma|lacrosse|curling|rugby|cricket|mlb|nhl|nba|nfl|mls|cfl|ncaa|wnba)\b", re.I)
@@ -441,7 +449,7 @@ def _tsn_channel(chan):
     return "TSN+" if re.match(r"^tsn\+\d+$", (chan or "").lower()) else chan
 
 
-def _ca_from_tsn(g, date_iso):
+def _ca_from_tsn(g):
     """TSN channels carrying this game, or [] if TSN isn't showing it.
 
     Both teams must appear in the listing title, and the broadcast has to start in
@@ -449,7 +457,7 @@ def _ca_from_tsn(g, date_iso):
     after. That keeps a same-night replay or a highlights show from being reported
     as the live broadcast.
     """
-    listings = tsn_listings() + sportsnet_listings(date_iso)
+    listings = tsn_listings()
     if not listings or not g.get("dt"):
         return []
     away, home = _team_keys(g.get("away")), _team_keys(g.get("home"))
@@ -468,124 +476,14 @@ def _ca_from_tsn(g, date_iso):
     return dedupe(sorted(found))
 
 
-# ---------------------------------------- source: Sportsnet via ontvtonight ----
-# Sportsnet publishes no open schedule feed (sportsnet.ca/tv-listings is a 404) and
-# TVTV.ca's robots.txt bars automated access outright. ontvtonight.com's Canadian
-# channel guides are server-rendered HTML and robots-permitted, and each row carries
-# the full matchup -- "MLB Baseball" / "Toronto Blue Jays at Cleveland Guardians" --
-# which is what the matcher needs.
-#
-# Times are printed in the feed's own zone, not the reader's, so each channel below
-# carries the zone its listings are written in. The three regional feeds are one
-# service to a viewer, so they all report as plain "Sportsnet"; One and 360 are
-# separate channels and keep their names.
-ONTV_CHANNEL_URL = "https://www.ontvtonight.com/ca/guide/listings/channel/{}.html"
-SPORTSNET_CHANNELS = [
-    ("Sportsnet", "69047071/rogers-sportsnet-ontario", ET),
-    ("Sportsnet", "69023336/rogers-sportsnet-east", ET),
-    ("Sportsnet", "69047072/rogers-sportsnet-pacific", PT),
-    ("Sportsnet One", "69038396/sportsnet-one", ET),
-    ("Sportsnet 360", "629244158/sportsnet-360", ET),
-]
-
-_SN_CACHE = None
-_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def get_text(url):
-    """Plain-text GET. Supplementary sources use this and never record a fetch
-    error -- a listings site being down must not fail the run."""
-    req = urllib.request.Request(url, headers=dict(BROWSER_HEADERS, **{
-        "Accept": "text/html,application/xhtml+xml", "Referer": "https://www.ontvtonight.com/"}))
-    try:
-        with urllib.request.urlopen(req, timeout=25) as r:
-            return r.read().decode("utf-8", "replace")
-    except Exception as e:
-        log(f"  ! fetch failed {url.split('?')[0]}: {e}")
-        return None
-
-
-def _unescape(s):
-    for a, b in (("&amp;", "&"), ("&#39;", "'"), ("&#039;", "'"), ("&quot;", '"'),
-                 ("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">"), ("&#8217;", "\u2019")):
-        s = s.replace(a, b)
-    return s
-
-
-def _cell_text(raw):
-    return re.sub(r"\s+", " ", _unescape(_TAG_RE.sub(" ", raw or ""))).strip()
-
-
-def _ontv_time(raw, tz, date_iso):
-    """"1:00 pm" -> UTC. A row after midnight carries its own date, e.g.
-    "12:00 am 2026-09-04"; everything else belongs to the page's day."""
-    m = re.search(r"(\d{1,2}):(\d{2})\s*([ap])m", raw, re.I)
-    if not m:
-        return None
-    hour = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "p" else 0)
-    d = re.search(r"(\d{4}-\d{2}-\d{2})", raw)
-    try:
-        day = datetime.date.fromisoformat(d.group(1) if d else date_iso)
-    except ValueError:
-        return None
-    return datetime.datetime(day.year, day.month, day.day, hour, int(m.group(2)),
-                             tzinfo=tz).astimezone(datetime.timezone.utc)
-
-
-def _ontv_rows(label, slug, tz, date_iso):
-    page = get_text(ONTV_CHANNEL_URL.format(slug))
-    if not page:
-        return []
-    # The guide has a date picker; if the selected day is not the day being built,
-    # the page is stale or the site rolled over - skip it rather than publish it.
-    sel = re.search(r'<option value="(\d{4}-\d{2}-\d{2})"[^>]*selected', page)
-    if sel and sel.group(1) != date_iso:
-        log(f"  ! {slug.split('/')[-1]} shows {sel.group(1)}, not {date_iso} - skipped")
-        return []
-    rows = []
-    for frag in page.split("<tr")[1:]:
-        frag = frag.split("</tr>")[0]
-        tm = re.search(r"ott-channel-time[^>]*>(.*?)</h5>", frag, re.S)
-        ti = re.search(r"ott-channel-show__title[^>]*>(.*?)</h5>", frag, re.S)
-        me = re.search(r"ott-channel-show__meta[^>]*>(.*?)</h6>", frag, re.S)
-        if not (tm and ti):
-            continue
-        start = _ontv_time(_cell_text(tm.group(1)), tz, date_iso)
-        if not start:
-            continue
-        text = _cell_text(ti.group(1))
-        if me:
-            text += " " + _cell_text(me.group(1))
-        rows.append((text, label, start))
-    if not rows:
-        # Nothing parsed is ambiguous - an empty guide, a markup change, or a bot
-        # challenge served with a 200. Log enough to tell them apart next run.
-        title = re.search(r"<title[^>]*>(.*?)</title>", page, re.S)
-        log(f"    {slug.split('/')[-1]}: 0 rows from {len(page)} bytes, "
-            f"table={'channel-schedule' in page}, title={_cell_text(title.group(1))[:60] if title else '?'}")
-    return rows
-
-
-def sportsnet_listings(date_iso):
-    global _SN_CACHE
-    if _SN_CACHE is not None:
-        return _SN_CACHE
-    rows = []
-    for label, slug, tz in SPORTSNET_CHANNELS:
-        rows.extend(_ontv_rows(label, slug, tz, date_iso))
-    log(f"  Sportsnet listings: {len(rows)} entr(ies) across {len(SPORTSNET_CHANNELS)} channels")
-    _SN_CACHE = rows
-    return rows
-
-
-def _apply_tsn(games, date_iso):
-    """Fill an empty Canada cell from the Canadian listings; never overwrite feed data."""
+def _apply_tsn(games):
+    """Fill an empty Canada cell from the TSN schedule; never overwrite feed data."""
     for g in games:
         if not g.get("ca"):
-            hit = _ca_from_tsn(g, date_iso)
+            hit = _ca_from_tsn(g)
             if hit:
                 g["ca"] = hit
-                log(f"    CA: {g.get('away')} at {g.get('home')} -> {', '.join(hit)}")
+                log(f"    TSN: {g.get('away')} at {g.get('home')} -> {', '.join(hit)}")
     return games
 
 
@@ -597,7 +495,7 @@ def load_games(lg, date_iso):
     else:
         games = games_espn(lg["path"], date_iso, lg.get("groups"))
     # Real listings beat a rights rule, so TSN is consulted first.
-    games = _apply_tsn(games, date_iso)
+    games = _apply_tsn(games)
     games = _apply_ca_rights(lg, games, date_iso)
     games.sort(key=lambda g: (g["dt"] is None,
                g["dt"] or datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)))
