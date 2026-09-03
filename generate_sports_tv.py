@@ -557,6 +557,12 @@ def _ontv_rows(label, slug, tz, date_iso):
         if me:
             text += " " + _cell_text(me.group(1))
         rows.append((text, label, start))
+    if not rows:
+        # Nothing parsed is ambiguous - an empty guide, a markup change, or a bot
+        # challenge served with a 200. Log enough to tell them apart next run.
+        title = re.search(r"<title[^>]*>(.*?)</title>", page, re.S)
+        log(f"    {slug.split('/')[-1]}: 0 rows from {len(page)} bytes, "
+            f"table={'channel-schedule' in page}, title={_cell_text(title.group(1))[:60] if title else '?'}")
     return rows
 
 
