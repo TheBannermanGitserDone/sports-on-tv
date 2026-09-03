@@ -382,7 +382,15 @@ def tsn_listings():
     data = get_json(TSN_SCHEDULE_URL)
     del FETCH_ERRORS[mark:]
     out = []
-    for item in (data or {}).values():
+    # The feed answers with a JSON array; a dict keyed "0","1",... looks identical
+    # from a browser console, so accept either rather than trusting one shape.
+    if isinstance(data, list):
+        raw_items = data
+    elif isinstance(data, dict):
+        raw_items = list(data.values())
+    else:
+        raw_items = []
+    for item in raw_items:
         if not isinstance(item, dict):
             continue
         title = ((item.get("headlines") or {}).get("basic") or "").strip()
