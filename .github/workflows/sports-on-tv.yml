@@ -1,17 +1,36 @@
 name: Sports on TV Today
 
-# Publishes thebannerman.ca/pages/sports-on-tv-today every morning ~7:35 AM Eastern.
-# GitHub cron is UTC and ignores DST, so we fire at both the EDT and EST offsets,
-# plus two later backup firings in case GitHub delays or drops the morning run.
-# The page script just republishes today's page (idempotent), so extra firings are
-# harmless and there is no time guard that could silently skip.
+# Publishes thebannerman.ca/pages/sports-on-tv-today. Target: live before 10 AM Eastern,
+# well ahead of the earliest games.
+#
+# TIMING, AND THE TWO CONSTRAINTS THAT SET IT
+#
+# 1. GitHub's scheduled runs are best-effort and are queued at low priority. Through
+#    early September 2026 they ran FIVE TO SIX HOURS late every day, which pushed this
+#    job from its intended 7:35 AM ET into the 10 AM - 4:45 PM ET range. The page still
+#    published (there is no time guard here to skip it) but far too late to be useful.
+#    The answer is to fire early and often so that a delayed firing still lands in time.
+#
+# 2. generate_sports_tv.py builds the page for TODAY IN PACIFIC TIME. So the job must
+#    never run before Pacific midnight, or it will publish the previous day's games.
+#    Pacific midnight is 07:00 UTC in summer and 08:00 UTC in winter, so the earliest
+#    safe cron is 09:00 UTC — 2 AM PDT / 1 AM PST — which leaves a clear hour of margin
+#    on both sides of the DST change. Do not move it earlier without first making the
+#    script take an explicit date.
+#
+# The script just republishes today's page and is idempotent, so extra firings are
+# harmless and there is no guard that could silently skip a day.
 
 on:
   schedule:
-    - cron: "35 11 * * *"   # 7:35 AM EDT (summer)
-    - cron: "35 12 * * *"   # 7:35 AM EST (winter)
-    - cron: "35 15 * * *"   # backup (~11:35 AM ET)
-    - cron: "35 17 * * *"   # backup (~1:35 PM ET)
+    - cron: "35 9 * * *"    # 2:35 AM PDT / 1:35 AM PST  (5:35 AM EDT / 4:35 AM EST)
+    - cron: "35 10 * * *"   # 3:35 AM PDT / 2:35 AM PST
+    - cron: "35 11 * * *"   # 4:35 AM PDT / 3:35 AM PST  (the original 7:35 AM EDT slot)
+    - cron: "35 12 * * *"   # 5:35 AM PDT / 4:35 AM PST  (the original 7:35 AM EST slot)
+    - cron: "35 13 * * *"   # 6:35 AM PDT / 5:35 AM PST
+    - cron: "35 14 * * *"   # 7:35 AM PDT / 6:35 AM PST  (10:35 AM EDT - last early shot)
+    - cron: "35 16 * * *"   # backup (~12:35 PM EDT)
+    - cron: "35 18 * * *"   # backup (~2:35 PM EDT)
   workflow_dispatch: {}
 
 concurrency:
@@ -35,3 +54,12 @@ jobs:
           SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
           SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
         run: python generate_sports_tv.py
+
+      - name: Note how late GitHub was
+        if: always()
+        run: |
+          echo "Ran at $(TZ=America/New_York date '+%H:%M') ET / $(TZ=America/Los_Angeles date '+%H:%M') PT"
+          H=$(TZ="America/New_York" date +%H)
+          if [ "10#$H" -ge 10 ]; then
+            echo "::warning::This run landed at $(TZ=America/New_York date '+%H:%M') ET, after the 10 AM target. GitHub's scheduler is running behind."
+          fi
