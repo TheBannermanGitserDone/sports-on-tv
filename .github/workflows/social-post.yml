@@ -3,19 +3,29 @@ name: Daily Social Card
 # Renders the "Marquee Games" card and schedules it in ContentStudio to PUBLISH at
 # 9:35 AM Eastern -- a reminder just before the earliest games (~10 AM ET).
 #
-# The job runs EARLY (hourly from 6-8 AM ET; the marquee data is available well
-# before then) and schedules the post for a FIXED 9:35 AM ET slot, so the actual
-# post time does NOT depend on when GitHub happens to run the job. Even if GitHub's
-# cron is delayed an hour or two, the post still lands at 9:35. It only misses a day
-# if GitHub can't run ANY job in the whole 6-9 AM window (e.g. a multi-hour Actions
-# outage), and it never posts late in the day.
+# TIMING, AND WHY THIS IS BUILT THE WAY IT IS
+# GitHub's scheduled runs are best-effort and are queued at low priority. They are
+# routinely late, and in September 2026 they ran FIVE TO SIX HOURS late for days on
+# end. The old guard only allowed the job to proceed during the 6-8 AM ET hours, so
+# once GitHub started firing at 9-11 AM ET the guard skipped every single firing and
+# no card was posted for five days -- while every run still reported success.
 #
-# GitHub cron is UTC and ignores DST; the guard runs only in the 6-8 AM ET hours, so
-# the off-season firings (which land at 5 AM or 9 AM ET) are skipped. A per-day
-# marker (.last_post_date) means the post is scheduled at most once per day.
+# So: fire early and often (the first cron is ~7.5 hours before the target slot, to
+# absorb a long delay), and judge by the CLOCK rather than by which cron fired.
+# The post is scheduled for a fixed 9:35 AM ET slot, so the publish time does not
+# depend on when GitHub actually gets round to running the job. If the job starts
+# after 9:35 the lead time clamps to one minute and it posts straight away, which is
+# still worth doing. Past 12:00 ET a "games on TV today" card is no use, so the day
+# is abandoned -- and the run FAILS, so a missed day is visible instead of silent.
+#
+# A per-day marker (.last_post_date) means the card is scheduled at most once a day.
 
 on:
   schedule:
+    - cron: "0 6 * * *"    # 2 AM EDT / 1 AM EST
+    - cron: "0 7 * * *"    # 3 AM EDT / 2 AM EST
+    - cron: "0 8 * * *"    # 4 AM EDT / 3 AM EST
+    - cron: "0 9 * * *"    # 5 AM EDT / 4 AM EST
     - cron: "0 10 * * *"   # 6 AM EDT / 5 AM EST
     - cron: "0 11 * * *"   # 7 AM EDT / 6 AM EST
     - cron: "0 12 * * *"   # 8 AM EDT / 7 AM EST
@@ -35,22 +45,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run once per day in the 6-8 AM ET window (manual runs always proceed)
+      - name: Decide whether to post today
         id: guard
         run: |
           TODAY=$(TZ="America/New_York" date +%F)
-          H=$(TZ="America/New_York" date +%H)
+          # 10# forces base 10 -- without it "08" and "09" are invalid octal and the
+          # arithmetic below dies.
+          NOWMIN=$(( 10#$(TZ="America/New_York" date +%H) * 60 + 10#$(TZ="America/New_York" date +%M) ))
+          CUTOFF=$(( 12 * 60 ))
           LAST=$(cat .last_post_date 2>/dev/null || echo none)
           echo "Eastern now: $(TZ=America/New_York date '+%Y-%m-%d %H:%M')  |  last posted: $LAST"
-          INWIN=no
-          case "$H" in 06|07|08) INWIN=yes;; esac
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual run - proceeding regardless of the clock."
             echo "run=yes" >> "$GITHUB_OUTPUT"
-          elif [ "$TODAY" != "$LAST" ] && [ "$INWIN" = "yes" ]; then
+          elif [ "$TODAY" = "$LAST" ]; then
+            echo "Already posted today - nothing to do."
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          elif [ "$NOWMIN" -lt "$CUTOFF" ]; then
+            echo "Nothing posted for $TODAY yet and it is before 12:00 ET - proceeding."
             echo "run=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "Outside the 6-8 AM ET window, or already posted today - skipping."
+            echo "::error::No marquee card posted for $TODAY. Every scheduled firing today landed after 12:00 ET, which is too late for a card about today's games. Check whether GitHub's scheduler is running hours behind."
             echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "missed=yes" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Python
@@ -79,7 +96,7 @@ jobs:
           git push || (git pull --rebase --autostash && git push)
           echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Post to ContentStudio (scheduled to publish at 9:35 AM ET)
+      - name: Post to ContentStudio (targets 9:35 AM ET, posts now if that has passed)
         if: steps.guard.outputs.run == 'yes'
         env:
           CONTENTSTUDIO_API_KEY: ${{ secrets.CONTENTSTUDIO_API_KEY }}
@@ -89,8 +106,12 @@ jobs:
           NOW=$(date +%s)
           TARGET=$(TZ="America/New_York" date -d "09:35" +%s)
           LEAD=$(( (TARGET - NOW + 59) / 60 ))
-          if [ "$LEAD" -lt 1 ]; then LEAD=1; fi
-          echo "Scheduling ContentStudio post for 09:35 ET (lead ${LEAD} min from now)"
+          if [ "$LEAD" -lt 1 ]; then
+            LEAD=1
+            echo "9:35 AM ET has already passed - posting immediately instead."
+          else
+            echo "Scheduling ContentStudio post for 09:35 ET (lead ${LEAD} min from now)"
+          fi
           SCHEDULE_LEAD_MIN="$LEAD" python post_card.py
 
       - name: Clean up already-published marquee cards
@@ -112,3 +133,9 @@ jobs:
           git add .last_post_date
           git commit -m "record daily post $TODAY" || echo "nothing to commit"
           git push || (git pull --rebase --autostash && git push)
+
+      - name: Fail loudly if today was missed
+        if: steps.guard.outputs.missed == 'yes'
+        run: |
+          echo "Marking this run as failed so a missed day is visible rather than silent."
+          exit 1
